@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#071728">
+  <title>SafeRoute | Real-Data Emergency Evacuation Planner</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="./style.css?v=3">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          <path d="m9 12 2 2 4-4"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <strong>SafeRoute</strong>
+        <small>EMERGENCY EVACUATION COMMAND</small>
+      </span>
+    </a>
+
+    <div class="topbar-meta">
+      <div class="area-pill" id="activeAreaPill" title="Active OpenStreetMap Dataset">
+        <span class="pulse-dot"></span>
+        <span id="activeAreaText">Loading OpenStreetMap network...</span>
+      </div>
+      <div class="engine-pill" id="engineStatusPill">C++ A* / Dijkstra Engine</div>
+    </div>
+  </header>
+
+  <main class="page" id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">OPENSTREETMAP ROAD NETWORK &bull; C++ GRAPH ENGINE</p>
+        <h1>Real-street evacuation<br><span>routing in milliseconds.</span></h1>
+        <p class="hero-subtitle">
+          Plan safer evacuation routes across real OpenStreetMap streets, simulate live road blockages with instant rerouting, and locate verified emergency shelters, hospitals, and open assembly hubs.
+        </p>
+        <div class="hero-cta-row">
+          <a class="btn-hero-primary" href="#planner">Open Route Command <span>&darr;</span></a>
+          <button class="btn-hero-secondary" type="button" onclick="findNearestShelterRoute()">
+            Nearest Shelter Route
+          </button>
+        </div>
+      </div>
+
+      <div class="hero-telemetry" aria-label="Active network statistics">
+        <div class="telemetry-card">
+          <span class="telemetry-label">Intersections</span>
+          <strong id="statNodes">--</strong>
+          <small>Connected OSM junctions</small>
+        </div>
+        <div class="telemetry-card">
+          <span class="telemetry-label">Road Segments</span>
+          <strong id="statRoads">--</strong>
+          <small id="statClosedRoads">0 blocked</small>
+        </div>
+        <div class="telemetry-card">
+          <span class="telemetry-label">Emergency Hubs</span>
+          <strong id="statShelters">--</strong>
+          <small>Hospitals, fire, transit, parks</small>
+        </div>
+        <div class="telemetry-card">
+          <span class="telemetry-label">Routing Core</span>
+          <strong>C++14</strong>
+          <small>A* &amp; Dijkstra comparison</small>
+        </div>
+      </div>
+    </section>
+
+    <section class="osm-bar panel" aria-label="Real OpenStreetMap area loader">
+      <div class="osm-bar-title">
+        <span class="badge-osm">REAL OSM DATA</span>
+        <div>
+          <h3>Switch City or Load Live Map Area</h3>
+          <p>Preloaded with real Ludhiana OpenStreetMap roads &amp; shelters, or fetch any city/GPS area live.</p>
+        </div>
+      </div>
+      <div class="osm-bar-controls">
+        <div class="input-with-btn">
+          <input id="osmSearchInput" type="text" placeholder="Search Indian city or area (e.g. Chandigarh, Delhi, Jaipur)..." aria-label="Search city on OpenStreetMap">
+          <button id="osmSearchBtn" class="btn btn-primary" type="button" onclick="loadOsmByQuery()">Load City</button>
+        </div>
+        <button id="osmGpsBtn" class="btn btn-outline" type="button" onclick="loadOsmNearGps()" title="Load OpenStreetMap roads around your current GPS location">
+          Load Near My GPS
+        </button>
+        <button id="osmResetBtn" class="btn btn-light" type="button" onclick="resetDefaultOsm()">
+          Reset Ludhiana
+        </button>
+      </div>
+    </section>
+
+    <section class="workspace" id="planner">
+      <aside class="sidebar">
+        <!-- GPS Panel -->
+        <article class="panel">
+          <div class="panel-heading">
+            <span class="panel-icon blue">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+                <circle cx="12" cy="12" r="8" stroke-dasharray="2 2"/>
+              </svg>
+            </span>
+            <div>
+              <h3>Live GPS Telemetry</h3>
+              <p>Snap your device location to the nearest road junction.</p>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="locationButton" class="btn btn-primary" type="button" onclick="startLiveLocation()">Get My Live Location</button>
+            <button id="ipLocButton" class="btn btn-outline" type="button" onclick="useApproxIndiaLocation()" title="Use approximate India city location if GPS is blocked">Auto-Detect City</button>
+            <button id="stopButton" class="btn btn-light" type="button" onclick="stopLiveLocation()" disabled>Stop</button>
+          </div>
+          <p id="locationStatus" class="status-line" role="status">GPS idle. You can also click the map or choose a junction below.</p>
+          <p id="coordinates" class="coordinates"></p>
+        </article>
+
+        <!-- Route Planner Panel -->
+        <article class="panel">
+          <div class="panel-heading">
+            <span class="panel-icon green">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/>
+              </svg>
+            </span>
+            <div>
+              <h3>Evacuation Route Planner</h3>
+              <p>Select junctions or click directly on the map.</p>
+            </div>
+          </div>
+
+          <div class="field-group">
+            <div class="label-row">
+              <label for="startLocation">Starting junction</label>
+              <button type="button" class="mini-pill-btn" id="pickStartBtn" onclick="toggleMapPick('start')">Pick on map</button>
+            </div>
+            <select id="startLocation"></select>
+          </div>
+
+          <div class="swap-row">
+            <button type="button" class="btn-swap" onclick="swapLocations()" title="Swap start and destination">
+              &uarr;&darr; Swap Start &amp; Destination
+            </button>
+          </div>
+
+          <div class="field-group">
+            <div class="label-row">
+              <label for="destinationLocation">Destination / Shelter node</label>
+              <button type="button" class="mini-pill-btn" id="pickDestBtn" onclick="toggleMapPick('destination')">Pick on map</button>
+            </div>
+            <select id="destinationLocation"></select>
+          </div>
+
+          <div class="field-group">
+            <label for="algorithm">Routing algorithm</label>
+            <select id="algorithm">
+              <option value="astar">A* (Heuristic-Guided Shortest Time)</option>
+              <option value="dijkstra">Dijkstra (Exhaustive Shortest Time)</option>
+            </select>
+          </div>
+
+          <div class="btn-stack">
+            <button id="routeButton" class="btn btn-dark" type="button" onclick="findRoute()">
+              Calculate Safest Route &rarr;
+            </button>
+            <button id="nearestShelterBtn" class="btn btn-emerald" type="button" onclick="findNearestShelterRoute()">
+              Auto-Route to Nearest Shelter
+            </button>
+          </div>
+
+          <p id="routeStatus" class="status-line" role="status">Ready to compute route.</p>
+          <div id="routeDetails" class="route-details"></div>
+        </article>
+
+        <!-- Road Blockage Controls -->
+        <article class="panel">
+          <div class="panel-heading">
+            <span class="panel-icon amber">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </span>
+            <div>
+              <h3>Road Closure Simulator</h3>
+              <p>Click any road on the map to block/reopen it and test live rerouting.</p>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-warning-soft" type="button" onclick="simulateRouteBlockage()">Block Active Route</button>
+            <button class="btn btn-light" type="button" onclick="resetAllRoads()">Reopen All Roads</button>
+          </div>
+          <div id="closedRoadsList" class="closed-roads-list"></div>
+        </article>
+      </aside>
+
+      <div class="main-stage">
+        <article class="panel map-panel">
+          <div class="map-toolbar">
+            <div>
+              <p class="eyebrow">INTERACTIVE ROAD &amp; SHELTER MAP</p>
+              <h3>Live Evacuation Network</h3>
+            </div>
+            <div class="map-controls-right">
+              <label class="toggle-chip">
+                <input type="checkbox" id="toggleNodes" checked onchange="toggleNodeMarkers()">
+                <span>Junctions</span>
+              </label>
+              <select id="basemapSelect" class="basemap-select" onchange="changeBasemap()" aria-label="Map style">
+                <option value="osm">OpenStreetMap Standard</option>
+                <option value="hot">Humanitarian Emergency Map</option>
+                <option value="topo">Terrain / Topo Map</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="mapPickBanner" class="map-pick-banner hidden">
+            <span id="mapPickText">Click anywhere on the map to select location...</span>
+            <button type="button" onclick="toggleMapPick(null)">Cancel</button>
+          </div>
+
+          <div id="map" aria-label="Interactive evacuation map showing real OpenStreetMap roads and shelters"></div>
+
+          <div class="map-legend">
+            <span><i class="swatch-road"></i> Open Road (click to close)</span>
+            <span><i class="swatch-closed"></i> Blocked Road</span>
+            <span><i class="swatch-route"></i> Active Evacuation Route</span>
+            <span><i class="swatch-shelter"></i> Real Shelter / Hospital / Hub</span>
+            <span><i class="swatch-gps"></i> Live GPS / Other Device</span>
+          </div>
+        </article>
+
+        <!-- Bottom tabbed panel: Turn-by-turn directions + Shelters Directory -->
+        <article class="panel details-tabs-panel">
+          <div class="tabs-header">
+            <button class="tab-btn active" id="tabSheltersBtn" type="button" onclick="switchTab('shelters')">
+              Emergency Shelters &amp; Hospitals (<span id="shelterTabCount">0</span>)
+            </button>
+            <button class="tab-btn" id="tabDirectionsBtn" type="button" onclick="switchTab('directions')">
+              Turn-by-Turn Directions (<span id="stepsTabCount">0</span>)
+            </button>
+          </div>
+
+          <div id="tabShelters" class="tab-content active">
+            <div class="shelter-filters">
+              <input id="shelterSearch" type="text" placeholder="Filter shelters by name, road, or category..." oninput="renderShelterList()">
+              <select id="shelterCategoryFilter" onchange="renderShelterList()">
+                <option value="ALL">All Categories</option>
+              </select>
+            </div>
+            <div id="shelterGrid" class="shelter-grid"></div>
+          </div>
+
+          <div id="tabDirections" class="tab-content">
+            <div id="directionsList" class="directions-list">
+              <p class="empty-state">Calculate a route to view street-by-street evacuation instructions and A* vs Dijkstra benchmarks.</p>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="notice">
+      <strong>Data Attribution &amp; Safety Notice</strong>
+      <p>
+        Road geometry, street names, and emergency facility locations are sourced from OpenStreetMap (Overpass API &amp; Nominatim).
+        Estimated travel times are computed from road-class speed profiles and do not reflect live traffic congestion, weather hazards, or official emergency closures. Always follow instructions from local emergency authorities.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <strong>SafeRoute Command</strong>
+    <span>OpenStreetMap Real Road Network &bull; C++ A* &amp; Dijkstra Engine &bull; FastAPI</span>
+  </footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="./script.js?v=3"></script>
+</body>
+</html>
